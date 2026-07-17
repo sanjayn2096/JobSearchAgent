@@ -33,6 +33,25 @@ class Settings(BaseSettings):
     per_source_timeout_seconds: float = 20.0
     max_results_default: int = 25
 
+    # Apollo.io — people search
+    apollo_api_key: str = ""
+
+    # SMTP — outbound email
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    notification_email: str = ""
+
+    # Daily scheduler
+    daily_search_query: str = ""
+    daily_run_hour: int = 8
+    base_url: str = "http://localhost:8000"
+
+    # Storage — override with Railway volume mount path in production
+    data_dir: str = "data"
+
 
 @lru_cache
 def get_settings() -> Settings:

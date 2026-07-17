@@ -19,6 +19,8 @@ from typing import Annotated, Optional, TypedDict
 
 from app.domain.entities.candidate import CandidateProfile
 from app.domain.entities.job import Job, ScoredJob
+from app.domain.entities.outreach import Contact, EmailDraft
+from app.domain.entities.resume_suggestion import ResumeSuggestion
 from app.domain.entities.search_criteria import SearchCriteria
 
 
@@ -42,3 +44,6 @@ class JobSearchState(TypedDict, total=False):
     # --- outputs ---
     summary: str
     cover_letters: dict[str, str]
+    resume_suggestions: list[ResumeSuggestion]
+    contacts: dict[str, list[Contact]]
+    outreach_drafts: dict[str, list[EmailDraft]]

@@ -1,29 +1,25 @@
 # Job Application Agent
 
-Tell it what kind of job you're looking for. It searches, filters, ranks, and writes you a summary — and if it doesn't find enough matches, it automatically tries again with slightly relaxed requirements.
-
-No clicking through job boards. No copy-pasting. Just describe the role you want.
+Upload your resume. The agent searches for jobs every day, suggests how to tailor your resume for the best matches, finds recruiters and hiring managers at those companies, and drafts outreach emails — all delivered to your inbox. Approve in one click to generate your application package.
 
 ---
 
 ## What it does
 
-You send a message like:
+Every morning the agent:
 
-> *"Senior Android Engineer in Seattle, at least 150k"*
-
-The agent:
-
-1. **Understands your request** — figures out the job title, location, salary, seniority level, and any skills you mentioned
-2. **Searches job boards** — queries multiple sources at the same time
-3. **Filters and scores results** — removes anything that doesn't meet your requirements, then ranks what's left by how well it fits
-4. **Retries if needed** — if it only finds 1–2 matches, it automatically relaxes the tightest constraint (usually salary) and searches again
-5. **Writes a summary** — explains the top results in plain language
-6. **Drafts cover letter openers** — if you provide your profile, it writes a short, tailored opening for the top 3 matches
+1. **Searches job boards** — queries multiple sources concurrently for your target role
+2. **Filters and ranks** — removes anything that doesn't meet your requirements, scores the rest
+3. **Retries if needed** — if results are thin, relaxes the tightest constraint and searches again
+4. **Suggests resume tweaks** — for each top job, tells you exactly which lines to reword, add, or surface to improve fit
+5. **Finds contacts** — looks up a recruiter and a hiring manager at each company via Apollo.io
+6. **Drafts outreach emails** — short, specific cold emails for each contact
+7. **Emails you a digest** — one email with everything: jobs, resume diffs, contacts, and drafted outreach
+8. **Generates application packages on approval** — click one link and it saves a per-job folder with your cover letter, tailored resume notes, and outreach drafts ready to send
 
 ---
 
-## Try it in 60 seconds (no accounts, no API keys)
+## Quick start (no API keys needed)
 
 ```bash
 git clone <repo>
@@ -34,21 +30,30 @@ pip install -e .
 python demo.py
 ```
 
-This runs two example searches against built-in fake job data so you can see the agent work — including the retry logic — before setting anything up.
+This runs two example searches against built-in fake data so you can see the agent work — including the retry logic — before setting anything up.
 
 ---
 
 ## Run it as an API
 
-**With your OpenRouter key:**
-
 ```bash
 cp .env.example .env
-# Edit .env and add: OPENROUTER_API_KEY=sk-or-...
+# Fill in at minimum: OPENROUTER_API_KEY
 uvicorn app.main:app --reload
 ```
 
-**Search for jobs:**
+Open `http://localhost:8000/docs` for the interactive API browser.
+
+### Upload your resume
+
+```bash
+curl -X POST http://localhost:8000/api/v1/resume \
+  -F "file=@/path/to/your_resume.pdf"
+```
+
+Returns the parsed headline and skill count. The profile is stored and used for every daily run.
+
+### Search interactively
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/search \
@@ -56,75 +61,84 @@ curl -X POST http://localhost:8000/api/v1/search \
   -d '{"query": "Senior Android Engineer, Seattle, 150k+"}'
 ```
 
-Or open `http://localhost:8000/docs` in your browser for a visual interface where you can fill in a form and click Run.
+### Approve a daily run
 
-### Which AI model to use
-
-Set `LLM_MODEL` in your `.env` file. Any model from [openrouter.ai/models](https://openrouter.ai/models) works:
-
-```
-LLM_MODEL=openai/gpt-4o-mini          # fast and cheap (default)
-LLM_MODEL=anthropic/claude-3.5-haiku  # better at nuanced writing
-LLM_MODEL=google/gemini-flash-1.5     # another fast option
+```bash
+curl -X POST http://localhost:8000/api/v1/approve/{run_id}
 ```
 
-### Real job data (optional)
+`run_id` is included in the digest email. On approval, per-job packages are saved to `data/packages/{run_id}/`.
 
-The agent comes with built-in sample jobs for testing. To search real listings, get a free key from [JSearch on RapidAPI](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) (200 searches/month free) and add it to `.env`:
+---
+
+## Daily digest setup
+
+Set these in `.env` to enable the daily scheduler:
 
 ```
+# What to search for
+DAILY_SEARCH_QUERY=Senior Software Engineer, Remote
+
+# Email delivery
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=your-app-password   # Gmail App Password, not your main password
+NOTIFICATION_EMAIL=you@gmail.com
+
+# People search (app.apollo.io)
+APOLLO_API_KEY=your-key
+
+# Job data (rapidapi.com — 200 free searches/month)
 JSEARCH_API_KEY=your-key
-USE_MOCK_SOURCES=false
+
+# Public URL for the approve link in the email
+BASE_URL=https://your-app.up.railway.app
 ```
 
-JSearch pulls from LinkedIn, Indeed, Glassdoor, and ZipRecruiter via their official API — no scraping.
+The scheduler fires at 8am daily. Change the hour with `DAILY_RUN_HOUR=9`.
 
 ---
 
 ## Use it with Claude
 
-The agent includes an MCP server so Claude can call it directly as a tool — you just talk to Claude and it handles the search for you.
+The agent ships with an MCP server so Claude can call it as a tool directly.
 
 ```bash
-# 1. Start the agent server
+# 1. Start the agent
 uvicorn app.main:app --port 8000
 
-# 2. Register it with Claude Code
+# 2. Register with Claude Code
 claude mcp add job-search -- python /path/to/mcp_server.py
 ```
 
-Once registered, you can say to Claude: *"Find me senior Android roles in Seattle paying over 150k"* and it will search, get results back, and discuss them with you.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for how this connection works under the hood.
+Claude then has three tools: `upload_resume`, `search_jobs`, and `approve_daily_run`. You can say *"Upload my resume at ~/resume.pdf then find senior backend roles in Austin"* and Claude handles it end-to-end.
 
 ---
 
-## What you get back
+## Deploy to Railway
 
-```json
-{
-  "summary": "Three strong matches found. The best fit is the Staff role at Emerald Health — it matches your skills and clears your salary target. Results skew senior with two hybrid options in central Seattle.",
-  "results": [
-    {
-      "job": {
-        "title": "Staff Android Engineer",
-        "company": "Emerald Health",
-        "location": "Bellevue, WA (Remote)",
-        "salary": { "minimum": 210000, "maximum": 260000 }
-      },
-      "score": 0.94,
-      "rationale": "Strongest signal: skill overlap. Weakest: seniority fit.",
-      "matched_skills": ["Kotlin", "Jetpack Compose", "Android"],
-      "missing_skills": [],
-      "cover_letter": null
-    }
-  ],
-  "total_found": 4,
-  "warnings": []
-}
+```bash
+npm install -g @railway/cli
+railway login
+railway init
+railway up
 ```
 
-Each result includes a fit score (0–1), an explanation of why it scored that way, and which skills matched or were missing.
+Then in the Railway dashboard:
+- **Volumes** → Add volume, mount at `/app/data` — this persists your profile, run history, and packages across deploys
+- **Variables** → Add all keys from `.env.example`
+- **Settings → Domains** → Generate a public URL, set it as `BASE_URL`
+
+---
+
+## Which AI model to use
+
+Set `LLM_MODEL` in `.env`. Any model on [openrouter.ai/models](https://openrouter.ai/models) works:
+
+```
+LLM_MODEL=openai/gpt-4o-mini          # fast and cheap (default)
+LLM_MODEL=anthropic/claude-3.5-haiku  # better writing quality
+LLM_MODEL=google/gemini-flash-1.5     # another fast option
+```
 
 ---
 
@@ -134,24 +148,21 @@ Each result includes a fit score (0–1), an explanation of why it scored that w
 pytest tests/ -v
 ```
 
-23 tests, all passing. No internet connection or API keys needed — the tests use built-in fake data and a fake AI model.
+No internet or API keys needed — tests use built-in fake data and a fake LLM.
 
 ---
 
 ## Known limitations
 
-This is a portfolio project, not a production service. A few things would need work before deploying it publicly:
-
 | What's missing | What it would need |
 |---|---|
-| No login or authentication | Add API key or token checking |
-| No rate limiting | Prevent abuse with request limits |
-| State resets on restart | Use a database-backed state store instead of in-memory |
-| Only works with one server process | Needs shared state store for horizontal scaling |
-| CORS allows all origins | Lock down to specific domains |
+| No authentication | API key or token checking on all routes |
+| No rate limiting | Request limits to prevent abuse |
+| JSON file storage | A database for multi-user or horizontal scaling |
+| CORS allows all origins | Lock down to specific domains in production |
 
 ---
 
 ## How it's built
 
-Curious about the technical decisions — how the AI is used, why LangGraph, what tradeoffs were made? See [ARCHITECTURE.md](ARCHITECTURE.md).
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical breakdown — how AI is used, how LangGraph works, and the tradeoffs behind the key decisions.

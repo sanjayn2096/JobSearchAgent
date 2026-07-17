@@ -15,6 +15,14 @@ env/
 HANDOFF.md
 *.local.md
 
+# Personal data — resume, daily run history, application packages
+data/profile.json
+data/runs/
+data/packages/
+
+# Claude Code local config and agent memory
+.claude/
+
 # Test / lint caches
 .pytest_cache/
 .ruff_cache/
