@@ -25,6 +25,10 @@ data/packages/*
 # Claude Code local config and agent memory
 .claude/
 
+# Frontend build artifacts
+frontend/node_modules/
+app/static/
+
 # Test / lint caches
 .pytest_cache/
 .ruff_cache/

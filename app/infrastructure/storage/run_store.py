@@ -43,3 +43,25 @@ def load_profile() -> dict | None:
     if not profile_path.exists():
         return None
     return json.loads(profile_path.read_text())
+
+
+def list_runs() -> list[dict]:
+    runs_dir = _data_dir() / "runs"
+    if not runs_dir.exists():
+        return []
+    runs = []
+    for f in sorted(runs_dir.glob("*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text())
+            jobs = data.get("jobs", [])
+            top = f"{jobs[0]['title']} @ {jobs[0]['company']}" if jobs else None
+            runs.append({
+                "run_id": data.get("run_id"),
+                "date": data.get("date"),
+                "query": data.get("query", ""),
+                "job_count": len(jobs),
+                "top_job": top,
+            })
+        except Exception:
+            continue
+    return runs

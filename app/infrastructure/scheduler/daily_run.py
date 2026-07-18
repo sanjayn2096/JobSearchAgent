@@ -36,6 +36,11 @@ def stop_scheduler() -> None:
         _scheduler.shutdown()
 
 
+def get_next_run_time():
+    jobs = _scheduler.get_jobs()
+    return jobs[0].next_run_time if jobs else None
+
+
 async def _run_daily(daily_use_case, profile_loader) -> None:
     settings = get_settings()
     profile_dict = profile_loader()
