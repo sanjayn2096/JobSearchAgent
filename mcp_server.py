@@ -1,192 +1,149 @@
-"""MCP server that exposes the job search agent as a Claude tool.
+"""MCP server — exposes the job search agent as Claude tools.
 
-Run alongside the FastAPI server:
-    uvicorn app.main:app --port 8000 &
-    python mcp_server.py
+## Claude Code (local, points at Railway):
+    claude mcp add job-agent \
+      -e API_BASE=https://pure-emotion-production-f0d8.up.railway.app \
+      -- python /path/to/mcp_server.py
 
-Then add to Claude Code:
-    claude mcp add job-search -- python /path/to/mcp_server.py
-
-Or add to ~/.claude/claude_desktop_config.json for Claude Desktop:
+## Claude Desktop (~/.claude/claude_desktop_config.json):
     {
       "mcpServers": {
-        "job-search": {
+        "job-agent": {
           "command": "python",
           "args": ["/path/to/mcp_server.py"],
-          "env": { "API_BASE": "http://localhost:8000" }
+          "env": { "API_BASE": "https://pure-emotion-production-f0d8.up.railway.app" }
         }
       }
     }
+
+## Claude.ai connector (remote — served by FastAPI at /mcp):
+    URL: https://pure-emotion-production-f0d8.up.railway.app/mcp
 """
 from __future__ import annotations
 
-import json
 import os
 
 import httpx
-import mcp.server.stdio
-import mcp.types as types
-from mcp.server import Server
+from mcp.server.fastmcp import FastMCP
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 
-server = Server("job-search-agent")
+mcp = FastMCP("job-agent")
 
 
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="search_jobs",
-            description=(
-                "Search for jobs using a natural-language query. "
-                "Parses intent, fans out across job boards, scores and ranks results, "
-                "and broadens the search automatically if too few results are found."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural-language job search. E.g. 'Senior Android Engineer, Seattle, 150k+'",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum results to return (default 10)",
-                        "default": 10,
-                    },
-                    "include_cover_letters": {
-                        "type": "boolean",
-                        "description": "Draft cover letters for top 3 matches (requires a stored resume)",
-                        "default": False,
-                    },
-                },
-                "required": ["query"],
-            },
-        ),
-        types.Tool(
-            name="upload_resume",
-            description=(
-                "Parse and store a resume from a local file path (PDF or DOCX). "
-                "The stored profile is used for daily job matching, resume tweaks, "
-                "and outreach drafts. Call this once before running daily searches."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Absolute path to the PDF or DOCX resume file",
-                    },
-                },
-                "required": ["file_path"],
-            },
-        ),
-        types.Tool(
-            name="approve_daily_run",
-            description=(
-                "Approve a daily job digest by its run ID. "
-                "Generates per-job application packages (cover letter, resume tweaks, "
-                "outreach drafts) and emails them. The run ID is included in the digest email."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "run_id": {
-                        "type": "string",
-                        "description": "Run ID from the daily digest email",
-                    },
-                },
-                "required": ["run_id"],
-            },
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    if name == "search_jobs":
-        return await _search_jobs(arguments)
-    if name == "upload_resume":
-        return await _upload_resume(arguments)
-    if name == "approve_daily_run":
-        return await _approve_daily_run(arguments)
-    raise ValueError(f"Unknown tool: {name}")
-
-
-async def _search_jobs(arguments: dict) -> list[types.TextContent]:
+@mcp.tool()
+async def search_jobs(
+    query: str,
+    max_results: int = 10,
+    include_cover_letters: bool = False,
+) -> str:
+    """Search for jobs using a natural-language query. Scores and ranks results, broadens automatically if too few results."""
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
+        r = await client.post(
             f"{API_BASE}/api/v1/search",
-            json={
-                "query": arguments["query"],
-                "max_results": arguments.get("max_results", 10),
-                "include_cover_letters": arguments.get("include_cover_letters", False),
-            },
+            json={"query": query, "max_results": max_results, "include_cover_letters": include_cover_letters},
         )
-        response.raise_for_status()
-        data = response.json()
+        r.raise_for_status()
+        data = r.json()
 
-    lines = [f"**Summary:** {data['summary']}", ""]
-    for i, r in enumerate(data["results"], 1):
-        j = r["job"]
+    lines = [f"**{data['total_found']} jobs found** — {data['summary']}", ""]
+    for i, item in enumerate(data["results"], 1):
+        j = item["job"]
         sal = (
-            f"{j['salary']['minimum']:,}–{j['salary']['maximum']:,} {j['salary']['currency']}"
-            if j["salary"]["disclosed"]
-            else "salary undisclosed"
+            f"${j['salary']['minimum']:,}–${j['salary']['maximum']:,} {j['salary']['currency']}"
+            if j["salary"]["disclosed"] else "salary undisclosed"
         )
-        lines.append(f"{i}. **{j['title']}** at {j['company']}")
-        lines.append(f"   {j['location']} · {sal} · fit score {r['score']:.2f}")
-        lines.append(f"   {r['rationale']}")
-        if r.get("cover_letter"):
-            lines.append(f"   *Cover letter:* {r['cover_letter']}")
+        posted = f" · posted {j['posted_at'][:10]}" if j.get("posted_at") else ""
+        lines += [
+            f"{i}. **{j['title']}** at {j['company']}",
+            f"   {j['location']} · {sal}{posted} · score {item['score']:.2f}",
+            f"   {item['rationale']}",
+        ]
+        if item.get("cover_letter"):
+            lines.append(f"   *Cover letter:* {item['cover_letter'][:300]}…")
         lines.append("")
-    if data.get("warnings"):
-        lines.append(f"_Warnings: {'; '.join(data['warnings'])}_")
-    return [types.TextContent(type="text", text="\n".join(lines))]
+    return "\n".join(lines)
 
 
-async def _upload_resume(arguments: dict) -> list[types.TextContent]:
-    file_path = arguments["file_path"]
+@mcp.tool()
+async def upload_resume(file_path: str) -> str:
+    """Parse and store a resume from a local PDF or DOCX file. Call once before daily searches."""
     with open(file_path, "rb") as f:
-        file_bytes = f.read()
+        data = f.read()
     filename = file_path.split("/")[-1]
-
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{API_BASE}/api/v1/resume",
-            files={"file": (filename, file_bytes)},
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    return [types.TextContent(
-        type="text",
-        text=f"Resume uploaded. Headline: {data['headline']} | Skills found: {data['skills_found']}",
-    )]
+        r = await client.post(f"{API_BASE}/api/v1/resume", files={"file": (filename, data)})
+        r.raise_for_status()
+        result = r.json()
+    return f"Resume stored. Headline: {result['headline']} | Skills: {result['skills_found']}"
 
 
-async def _approve_daily_run(arguments: dict) -> list[types.TextContent]:
-    run_id = arguments["run_id"]
+@mcp.tool()
+async def get_status() -> str:
+    """Get system status: next scheduled run time (PDT), whether a resume is uploaded, and the daily search query."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{API_BASE}/api/v1/status")
+        r.raise_for_status()
+        s = r.json()
+    resume = "uploaded" if s["has_resume"] else "NOT uploaded"
+    next_run = s["next_run_utc"] or "scheduler not running"
+    return f"Resume: {resume}\nNext run (UTC): {next_run}\nDaily query: {s['daily_query']}"
+
+
+@mcp.tool()
+async def list_runs() -> str:
+    """List all past daily job search runs with dates and job counts."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{API_BASE}/api/v1/runs")
+        r.raise_for_status()
+        runs = r.json()
+    if not runs:
+        return "No runs yet."
+    lines = []
+    for run in runs:
+        lines.append(f"- {run['date']} | {run['job_count']} jobs | top: {run['top_job'] or '—'} | id: {run['run_id']}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_run(run_id: str) -> str:
+    """Get the full detail of a daily run: jobs with scores, resume tweaks, contacts and outreach drafts."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{API_BASE}/api/v1/runs/{run_id}")
+        r.raise_for_status()
+        run = r.json()
+    lines = [f"**Run {run['date']}** — query: {run['query']}", ""]
+    for job in run.get("jobs", []):
+        lines.append(f"### {job['title']} @ {job['company']} (score {job['score']:.2f})")
+        lines.append(f"   {job['location']} — {job['url']}")
+        for t in job.get("resume_tweaks", []):
+            lines.append(f"   [{t['kind'].upper()}] {t['section']}: {t['suggested']}")
+        for c in job.get("contacts", []):
+            lines.append(f"   Contact: {c['name']} ({c['title']}) {c.get('email','')}")
+            if c.get("outreach_body"):
+                lines.append(f"   Draft: {c['outreach_body'][:200]}…")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def approve_daily_run(run_id: str) -> str:
+    """Approve a daily run to generate cover letters, resume tweaks, and outreach packages, then email them."""
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(f"{API_BASE}/api/v1/approve/{run_id}")
-        response.raise_for_status()
-
-    return [types.TextContent(
-        type="text",
-        text=f"Approved run {run_id}. Application packages saved to data/packages/{run_id}/",
-    )]
+        r = await client.post(f"{API_BASE}/api/v1/approve/{run_id}")
+        r.raise_for_status()
+    return f"Approved run {run_id}. Application packages saved and email sent."
 
 
-async def main() -> None:
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
-        )
+@mcp.tool()
+async def trigger_daily_run() -> str:
+    """Manually trigger the daily job search right now (for testing or on-demand runs)."""
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        r = await client.post(f"{API_BASE}/api/v1/admin/trigger-daily")
+        r.raise_for_status()
+        result = r.json()
+    return result.get("message", str(result))
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    mcp.run()

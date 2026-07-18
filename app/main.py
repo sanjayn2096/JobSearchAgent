@@ -18,6 +18,7 @@ from app.infrastructure.config.settings import get_settings
 from app.infrastructure.scheduler.daily_run import start_scheduler, stop_scheduler
 from app.interfaces.api.dependencies import get_daily_use_case
 from app.interfaces.api.routes import jobs, resume, approve, runs, analyze, admin
+import mcp_server as _mcp_module
 
 
 def _configure_logging(level: str) -> None:
@@ -63,6 +64,9 @@ app.include_router(approve.router)
 app.include_router(runs.router)
 app.include_router(analyze.router)
 app.include_router(admin.router)
+
+# Remote MCP connector — Claude.ai can add this as a connector at /mcp
+app.mount("/mcp", _mcp_module.mcp.streamable_http_app())
 
 # Serve React frontend — mount assets directory for hashed bundles, then
 # catch-all to return index.html so client-side routing works.
