@@ -12,6 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
+COPY mcp_server.py .
 COPY --from=frontend /frontend/dist ./app/static/
 
 RUN useradd --create-home --shell /bin/bash appuser \
