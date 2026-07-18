@@ -26,3 +26,10 @@ export async function uploadResume(file) {
   fd.append('file', file)
   return req('/resume', { method: 'POST', body: fd })
 }
+
+export const analyzeResume = (jobs) =>
+  req('/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobs }),
+  })

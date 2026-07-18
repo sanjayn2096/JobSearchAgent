@@ -8,7 +8,7 @@ function fmtSalary(sal) {
     : fmt(sal.minimum || sal.maximum)
 }
 
-export default function JobCard({ item }) {
+export default function JobCard({ item, tweaks }) {
   const [open, setOpen] = useState(false)
   const job = item.job
   const score = Math.round((item.score ?? 0) * 100)
@@ -59,6 +59,25 @@ export default function JobCard({ item }) {
           </p>
         )}
       </div>
+
+      {tweaks?.length > 0 && (
+        <div className="border-t border-purple-900/40 bg-purple-900/10 px-4 py-3">
+          <p className="text-xs text-purple-400 font-medium mb-2">Resume tweaks for this role</p>
+          <table className="w-full text-xs">
+            <tbody>
+              {tweaks.map((t, i) => (
+                <tr key={i} className="border-b border-gray-700/40 last:border-0">
+                  <td className="py-1 pr-2 text-gray-500 w-16 align-top">{t.section}</td>
+                  <td className="py-1 pr-2 align-top">
+                    <span className="text-yellow-400 bg-yellow-900/20 px-1 rounded">{t.kind}</span>
+                  </td>
+                  <td className="py-1 text-gray-200 align-top">{t.suggested}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {item.cover_letter && (
         <>

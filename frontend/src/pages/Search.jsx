@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { searchJobs } from '../api'
+import { searchJobs, analyzeResume } from '../api'
 import JobCard from '../components/JobCard'
 import Spinner from '../components/Spinner'
 
@@ -10,6 +10,8 @@ export default function Search() {
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [tweaks, setTweaks] = useState({})
+  const [analyzing, setAnalyzing] = useState(false)
 
   useEffect(() => {
     const q = params.get('q')
@@ -20,6 +22,7 @@ export default function Search() {
     setLoading(true)
     setError(null)
     setResults(null)
+    setTweaks({})
     try {
       const data = await searchJobs(q ?? query)
       setResults(data)
@@ -33,6 +36,28 @@ export default function Search() {
   function handleSubmit(e) {
     e.preventDefault()
     if (query.trim()) runSearch(query.trim())
+  }
+
+  async function handleAnalyze() {
+    if (!results?.results?.length) return
+    setAnalyzing(true)
+    try {
+      const jobs = results.results.slice(0, 5).map(item => ({
+        id: item.job.id,
+        title: item.job.title,
+        company: item.job.company,
+        location: item.job.location ?? '',
+        skills: item.job.skills ?? [],
+        missing_skills: item.missing_skills ?? [],
+        score: item.score ?? 0,
+      }))
+      const data = await analyzeResume(jobs)
+      setTweaks(data)
+    } catch (e) {
+      alert(`Analysis failed: ${e.message}`)
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   return (
@@ -60,12 +85,29 @@ export default function Search() {
 
       {results && !loading && (
         <div className="space-y-3">
-          <p className="text-sm text-gray-500">{results.total_found} jobs found · {results.results.length} shown</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500">
+              {results.total_found} jobs found · {results.results.length} shown
+            </p>
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 rounded-lg text-xs font-medium transition-colors"
+            >
+              {analyzing ? 'Analyzing…' : '✦ Analyze for my resume'}
+            </button>
+          </div>
+
           {results.summary && (
             <p className="text-sm text-gray-400 bg-gray-800 rounded-lg px-3 py-2">{results.summary}</p>
           )}
+
           {results.results.map((item, i) => (
-            <JobCard key={item.job?.id ?? i} item={item} />
+            <JobCard
+              key={item.job?.id ?? i}
+              item={item}
+              tweaks={tweaks[item.job?.id] ?? null}
+            />
           ))}
         </div>
       )}
