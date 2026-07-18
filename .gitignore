@@ -17,8 +17,10 @@ HANDOFF.md
 
 # Personal data — resume, daily run history, application packages
 data/profile.json
-data/runs/
-data/packages/
+data/runs/*
+!data/runs/.gitkeep
+data/packages/*
+!data/packages/.gitkeep
 
 # Claude Code local config and agent memory
 .claude/

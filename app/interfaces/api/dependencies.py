@@ -46,6 +46,13 @@ def _build_sources(settings: Settings) -> list[JobSource]:
     return sources
 
 
+def _build_enricher(settings: Settings):
+    if settings.jsearch_api_key and not settings.use_mock_sources:
+        from app.infrastructure.scrapers.jsearch_source import JSearchSource
+        return JSearchSource(settings.jsearch_api_key)
+    return None
+
+
 def _build_people_finder(settings: Settings):
     if settings.apollo_api_key:
         from app.infrastructure.people.apollo_source import ApolloSource
@@ -77,5 +84,6 @@ def get_daily_use_case() -> DailySearchUseCase:
         llm=_build_llm(settings),
         sources=_build_sources(settings),
         people_finder=_build_people_finder(settings),
+        enricher=_build_enricher(settings),
     )
     return DailySearchUseCase(graph)

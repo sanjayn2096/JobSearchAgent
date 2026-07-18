@@ -23,7 +23,10 @@ from app.domain.entities.search_criteria import SearchCriteria
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://jsearch.p.rapidapi.com/search"
+_BASE_URL = "https://jsearch.p.rapidapi.com/search-v2"
+_DETAILS_URL = "https://jsearch.p.rapidapi.com/job-details"
+_COMPANY_SALARY_URL = "https://jsearch.p.rapidapi.com/company-job-salary"
+_ESTIMATED_SALARY_URL = "https://jsearch.p.rapidapi.com/estimated-salary"
 
 _SENIORITY_PATTERNS = [
     (re.compile(r"\b(principal|distinguished|fellow)\b", re.I), SeniorityLevel.PRINCIPAL),
@@ -63,21 +66,17 @@ class JSearchSource:
         if criteria.arrangement is WorkArrangement.REMOTE:
             params["remote_jobs_only"] = "true"
 
-        headers = {
-            "X-RapidAPI-Key": self._api_key,
-            "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
-        }
-
         client = self._client or httpx.AsyncClient(timeout=20.0)
         try:
-            response = await client.get(_BASE_URL, params=params, headers=headers)
+            response = await client.get(_BASE_URL, params=params, headers=self._headers())
             response.raise_for_status()
             payload = response.json()
         finally:
             if self._owns_client:
                 await client.aclose()
 
-        raw_jobs = payload.get("data") or []
+        data = payload.get("data") or {}
+        raw_jobs = data.get("jobs", []) if isinstance(data, dict) else data
         jobs = []
         for item in raw_jobs:
             try:
@@ -146,6 +145,86 @@ class JSearchSource:
             if re.search(rf"\b{re.escape(skill.lower())}\b", lowered):
                 found.append(skill)
         return found
+
+    async def fetch_details(self, job_id: str) -> str:
+        client = self._client or httpx.AsyncClient(timeout=15.0)
+        try:
+            resp = await client.get(
+                _DETAILS_URL,
+                params={"job_id": job_id, "extended_publisher_details": "false"},
+                headers=self._headers(),
+            )
+            if resp.status_code != 200:
+                return ""
+            jobs = resp.json().get("data", [])
+            return jobs[0].get("job_description", "") if jobs else ""
+        except Exception as exc:
+            logger.debug("fetch_details failed for %s: %s", job_id, exc)
+            return ""
+        finally:
+            if self._owns_client:
+                await client.aclose()
+
+    async def fetch_company_salary(self, title: str, company: str) -> SalaryRange | None:
+        client = self._client or httpx.AsyncClient(timeout=15.0)
+        try:
+            resp = await client.get(
+                _COMPANY_SALARY_URL,
+                params={"job_title": title, "company_name": company},
+                headers=self._headers(),
+            )
+            if resp.status_code != 200:
+                return None
+            return self._parse_salary_data(resp.json().get("data", []))
+        except Exception as exc:
+            logger.debug("fetch_company_salary failed for %s @ %s: %s", title, company, exc)
+            return None
+        finally:
+            if self._owns_client:
+                await client.aclose()
+
+    async def fetch_salary_estimate(self, title: str, location: str) -> SalaryRange | None:
+        client = self._client or httpx.AsyncClient(timeout=15.0)
+        try:
+            resp = await client.get(
+                _ESTIMATED_SALARY_URL,
+                params={"job_title": title, "location": location, "radius": "100"},
+                headers=self._headers(),
+            )
+            if resp.status_code != 200:
+                return None
+            return self._parse_salary_data(resp.json().get("data", []))
+        except Exception as exc:
+            logger.debug("fetch_salary_estimate failed for %s @ %s: %s", title, location, exc)
+            return None
+        finally:
+            if self._owns_client:
+                await client.aclose()
+
+    def _headers(self) -> dict:
+        return {
+            "X-RapidAPI-Key": self._api_key,
+            "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+        }
+
+    @staticmethod
+    def _parse_salary_data(data: list) -> SalaryRange | None:
+        if not data:
+            return None
+        row = data[0]
+        lo = row.get("min_salary") or row.get("median_salary")
+        hi = row.get("max_salary") or row.get("median_salary")
+        currency = row.get("salary_currency", "USD")
+        period = (row.get("salary_period") or "YEAR").lower()
+        multiplier = {"hour": 2080, "day": 260, "week": 52, "month": 12, "year": 1}.get(period, 1)
+        try:
+            return SalaryRange(
+                int(lo * multiplier) if lo else None,
+                int(hi * multiplier) if hi else None,
+                currency,
+            )
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _parse_date(value: str | None) -> datetime | None:

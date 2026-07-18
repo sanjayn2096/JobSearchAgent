@@ -15,6 +15,7 @@ from app.agents.graphs.job_search_graph import (
 )
 from app.agents.nodes.cover_letter import CoverLetterNode
 from app.agents.nodes.draft_outreach import DraftOutreachNode
+from app.agents.nodes.enrich_jobs import EnrichJobsNode
 from app.agents.nodes.filter_and_score import FilterAndScoreNode
 from app.agents.nodes.find_contacts import FindContactsNode
 from app.agents.nodes.parse_query import ParseQueryNode
@@ -22,11 +23,16 @@ from app.agents.nodes.search_jobs import SearchJobsNode
 from app.agents.nodes.suggest_resume_tweaks import SuggestResumeTweaksNode
 from app.agents.nodes.summarize import SummarizeNode
 from app.agents.state import JobSearchState
+from app.domain.ports.job_enricher import JobEnricher
 from app.domain.ports.job_source import JobSource
 from app.domain.ports.llm import StructuredLLM
 from app.domain.ports.people_finder import PeopleFinder
 
 logger = logging.getLogger(__name__)
+
+
+async def _noop(state) -> dict:
+    return {}
 
 
 def _should_retry(state: JobSearchState) -> Literal["broaden", "summarize"]:
@@ -41,6 +47,7 @@ def build_daily_search_graph(
     llm: StructuredLLM,
     sources: list[JobSource],
     people_finder: PeopleFinder,
+    enricher: JobEnricher | None = None,
 ):
     graph = StateGraph(JobSearchState)
 
@@ -48,6 +55,7 @@ def build_daily_search_graph(
     graph.add_node("search_jobs", SearchJobsNode(sources))
     graph.add_node("filter_and_score", FilterAndScoreNode())
     graph.add_node("broaden", _broaden_criteria)
+    graph.add_node("enrich_jobs", EnrichJobsNode(enricher) if enricher else _noop)
     graph.add_node("summarize", SummarizeNode(llm))
     graph.add_node("cover_letter", CoverLetterNode(llm))
     graph.add_node("suggest_tweaks", SuggestResumeTweaksNode(llm))
@@ -60,9 +68,10 @@ def build_daily_search_graph(
     graph.add_conditional_edges(
         "filter_and_score",
         _should_retry,
-        {"broaden": "broaden", "summarize": "summarize"},
+        {"broaden": "broaden", "enrich_jobs": "enrich_jobs"},
     )
     graph.add_edge("broaden", "search_jobs")
+    graph.add_edge("enrich_jobs", "summarize")
     graph.add_edge("summarize", "cover_letter")
     graph.add_edge("cover_letter", "suggest_tweaks")
     graph.add_edge("suggest_tweaks", "find_contacts")
