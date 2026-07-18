@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.scheduler.daily_run import start_scheduler, stop_scheduler
 from app.interfaces.api.dependencies import get_daily_use_case
-from app.interfaces.api.routes import jobs, resume, approve, runs, analyze
+from app.interfaces.api.routes import jobs, resume, approve, runs, analyze, admin
 
 
 def _configure_logging(level: str) -> None:
@@ -62,6 +62,7 @@ app.include_router(resume.router)
 app.include_router(approve.router)
 app.include_router(runs.router)
 app.include_router(analyze.router)
+app.include_router(admin.router)
 
 # Serve React frontend — mount assets directory for hashed bundles, then
 # catch-all to return index.html so client-side routing works.
