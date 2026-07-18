@@ -15,11 +15,7 @@ COPY app/ ./app/
 COPY mcp_server.py .
 COPY --from=frontend /frontend/dist ./app/static/
 
-RUN useradd --create-home --shell /bin/bash appuser \
-    && mkdir -p /app/data \
-    && chown -R appuser:appuser /app
-
-USER appuser
+RUN mkdir -p /app/data/runs /app/data/packages
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s \
