@@ -37,6 +37,11 @@ export default function JobCard({ item }) {
         </div>
         <p className="text-sm text-gray-400">
           {job.company}{job.location ? ` · ${job.location}` : ''}
+          {job.posted_at && (
+            <span className="ml-2 text-xs text-gray-600">
+              · {new Date(job.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          )}
         </p>
         {salStr && <p className="text-sm text-green-400">{salStr}</p>}
         {job.skills?.length > 0 && (
