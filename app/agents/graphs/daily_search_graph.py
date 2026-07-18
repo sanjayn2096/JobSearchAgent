@@ -35,12 +35,12 @@ async def _noop(state) -> dict:
     return {}
 
 
-def _should_retry(state: JobSearchState) -> Literal["broaden", "summarize"]:
+def _should_retry(state: JobSearchState) -> Literal["broaden", "enrich_jobs"]:
     scored = state.get("scored_jobs", [])
     attempt = state.get("attempt", 0)
     if len(scored) < MIN_ACCEPTABLE_RESULTS and attempt < MAX_ATTEMPTS:
         return "broaden"
-    return "summarize"
+    return "enrich_jobs"
 
 
 def build_daily_search_graph(
