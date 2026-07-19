@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
-import aiosmtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import httpx
 
 logger = logging.getLogger(__name__)
+
+_RESEND_URL = "https://api.resend.com/emails"
 
 
 async def send_html(
@@ -20,18 +20,14 @@ async def send_html(
     subject: str,
     html: str,
 ) -> None:
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_addr
-    msg["To"] = to_addr
-    msg.attach(MIMEText(html, "html"))
-
-    await aiosmtplib.send(
-        msg,
-        hostname=smtp_host,
-        port=smtp_port,
-        username=username,
-        password=password,
-        start_tls=True,
-    )
-    logger.info("Email sent to %s: %s", to_addr, subject)
+    # smtp_host/port/username kept in signature for backwards compat,
+    # but we send via Resend API (Railway blocks outbound SMTP).
+    api_key = password  # reuse SMTP_PASSWORD field to store Resend API key
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            _RESEND_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"from": from_addr, "to": [to_addr], "subject": subject, "html": html},
+        )
+        resp.raise_for_status()
+    logger.info("Email sent via Resend to %s: %s", to_addr, subject)
