@@ -60,7 +60,7 @@ async def _run_daily(daily_use_case, profile_loader) -> None:
         return
 
     run_id = save_run(run)
-    approve_url = f"{settings.base_url}/runs/{run_id}"
+    approve_url = f"{settings.base_url}/api/v1/approve/{run_id}"
     subject, html = build_digest(run, approve_url)
 
     if settings.smtp_username and settings.notification_email:
